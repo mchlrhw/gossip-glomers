@@ -1,0 +1,9 @@
+# Rust
+
+/target
+/Cargo.lock
+
+# Maelstrom
+
+maelstrom*
+store/
