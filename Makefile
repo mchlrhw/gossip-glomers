@@ -13,3 +13,8 @@ challenge-1: maelstrom/maelstrom
 challenge-2: maelstrom/maelstrom
 	cargo build --bin challenge-2
 	./maelstrom/maelstrom test -w unique-ids --bin target/debug/challenge-2 --time-limit 30 --rate 1000 --node-count 3 --availability total --nemesis partition
+
+.PHONY: challenge-3
+challenge-3: maelstrom/maelstrom
+	cargo build --bin challenge-3
+	./maelstrom/maelstrom test -w broadcast --bin target/debug/challenge-3 --node-count 1 --time-limit 20 --rate 10
