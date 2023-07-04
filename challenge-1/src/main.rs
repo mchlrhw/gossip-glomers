@@ -1,9 +1,12 @@
+use futures_core::stream::Stream;
 use serde::{Deserialize, Serialize};
 use serde_repr::{Deserialize_repr, Serialize_repr};
 use std::{
     io,
     sync::atomic::{AtomicU32, Ordering},
 };
+use tokio::sync::mpsc;
+use tokio_stream::{wrappers::UnboundedReceiverStream, StreamExt};
 use tracing::{error, warn};
 use tracing_subscriber::EnvFilter;
 
@@ -64,7 +67,33 @@ fn msg_id() -> u32 {
     MSG_ID.fetch_add(1, Ordering::Relaxed)
 }
 
-fn main() {
+fn message_stream() -> impl Stream<Item = Message> {
+    let (snd, rcv) = mpsc::unbounded_channel();
+
+    tokio::spawn(async move {
+        let stdin = io::stdin().lock();
+        let messages = serde_json::Deserializer::from_reader(stdin).into_iter::<Message>();
+
+        for res in messages {
+            match res {
+                Ok(message) => {
+                    if let Err(error) = snd.send(message) {
+                        error!(?error, "failed to forward message from stream");
+                        break;
+                    }
+                }
+                Err(error) => {
+                    error!(?error, "failed to deserialize from stdin");
+                }
+            }
+        }
+    });
+
+    UnboundedReceiverStream::new(rcv)
+}
+
+#[tokio::main]
+async fn main() {
     let subscriber = tracing_subscriber::fmt()
         .with_writer(io::stderr)
         .with_env_filter(EnvFilter::from_default_env())
@@ -72,51 +101,47 @@ fn main() {
 
     tracing::subscriber::set_global_default(subscriber).unwrap();
 
-    let stdin = io::stdin().lock();
-    let messages = serde_json::Deserializer::from_reader(stdin).into_iter::<Message>();
-
     let mut our_node_id = String::new();
-    for serde_res in messages {
-        match serde_res {
-            Ok(message) => match &message.body.payload {
-                Payload::Error { code, text } => {
-                    warn!(?code, text, "received error");
-                }
-                Payload::Init { node_id, .. } => {
-                    our_node_id = node_id.to_owned();
 
-                    let resp = Message {
-                        src: our_node_id.clone(),
-                        dest: message.src.clone(),
-                        body: Body {
-                            msg_id: Some(msg_id()),
-                            in_reply_to: message.body.msg_id,
-                            payload: Payload::InitOk,
+    let mut messages = message_stream();
+    while let Some(message) = messages.next().await {
+        match &message.body.payload {
+            Payload::Error { code, text } => {
+                warn!(?code, text, "received error");
+            }
+            Payload::Init { node_id, .. } => {
+                our_node_id = node_id.to_owned();
+
+                let resp = Message {
+                    src: our_node_id.clone(),
+                    dest: message.src.clone(),
+                    body: Body {
+                        msg_id: Some(msg_id()),
+                        in_reply_to: message.body.msg_id,
+                        payload: Payload::InitOk,
+                    },
+                };
+                let serialized = serde_json::to_string(&resp).unwrap();
+
+                println!("{serialized}");
+            }
+            Payload::Echo { echo } => {
+                let resp = Message {
+                    src: our_node_id.clone(),
+                    dest: message.src.clone(),
+                    body: Body {
+                        msg_id: Some(msg_id()),
+                        in_reply_to: message.body.msg_id,
+                        payload: Payload::EchoOk {
+                            echo: echo.to_owned(),
                         },
-                    };
-                    let serialized = serde_json::to_string(&resp).unwrap();
+                    },
+                };
+                let serialized = serde_json::to_string(&resp).unwrap();
 
-                    println!("{serialized}");
-                }
-                Payload::Echo { echo } => {
-                    let resp = Message {
-                        src: our_node_id.clone(),
-                        dest: message.src.clone(),
-                        body: Body {
-                            msg_id: Some(msg_id()),
-                            in_reply_to: message.body.msg_id,
-                            payload: Payload::EchoOk {
-                                echo: echo.to_owned(),
-                            },
-                        },
-                    };
-                    let serialized = serde_json::to_string(&resp).unwrap();
-
-                    println!("{serialized}");
-                }
-                _ => warn!(?message, "unhandled message"),
-            },
-            Err(error) => error!(%error),
+                println!("{serialized}");
+            }
+            _ => warn!(?message, "unhandled message"),
         }
     }
 }
