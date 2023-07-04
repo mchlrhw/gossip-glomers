@@ -7,14 +7,4 @@ maelstrom/maelstrom: maelstrom.tar.bz2
 .PHONY: challenge-1
 challenge-1: maelstrom/maelstrom
 	cargo build --bin challenge-1
-	./maelstrom/maelstrom test -w echo --bin target/debug/challenge-1 --node-count 1 --time-limit 10
-
-.PHONY: challenge-2
-challenge-2: maelstrom/maelstrom
-	cargo build --bin challenge-2
-	./maelstrom/maelstrom test -w unique-ids --bin target/debug/challenge-2 --time-limit 30 --rate 1000 --node-count 3 --availability total --nemesis partition
-
-.PHONY: challenge-3
-challenge-3: maelstrom/maelstrom
-	cargo build --bin challenge-3
-	./maelstrom/maelstrom test -w broadcast --bin target/debug/challenge-3 --node-count 1 --time-limit 20 --rate 10
+	./maelstrom/maelstrom test -w echo --log-stderr --bin target/debug/challenge-1 --node-count 1 --time-limit 10
